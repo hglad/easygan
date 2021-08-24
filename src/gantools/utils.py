@@ -1,8 +1,4 @@
-import numpy as np
 import torch
-import os
-import sys
-import imageio
 
 def real_data_target(size, delta=0, cuda=False):
     '''

@@ -1,11 +1,16 @@
 import torch
 
 class ImageData:
-    def __init__(self, images, labels):
-        # input_data = input_data[:][0]
+    """
+    Class intended for use in conjunction with a PyTorch dataloader.
+    Labels can be supplied if the image data is labelled.
+    """
+    def __init__(self, images, labels=None):
         self.x = torch.Tensor(images)
-        self.y = torch.Tensor(labels).long()
-
+        if labels is None:
+            self.y  = torch.ones(x.shape[0]).long()
+        else:
+            self.y = torch.Tensor(labels).long()
 
     def __len__(self):
         return len(self.y)

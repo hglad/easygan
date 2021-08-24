@@ -1,16 +1,14 @@
 import torch.nn as nn
 import torch
 
-class ConditionalGen(nn.Module):
-    def __init__(self, n_classes=26):
-        super(ConditionalGen, self).__init__()
+class CGen(nn.Module):
+    def __init__(self, n_classes=26, c=64):
+        super(CGen, self).__init__()
 
         """
         Generates 90 x 160 x 3 image using labels  (h, w, c)
         """
-        # c = 32
-        c = 64
-        # c = 128
+
         self.embed = nn.Sequential(
             nn.Embedding(n_classes, 50),
             nn.Linear(50, 16))
