@@ -8,7 +8,7 @@ class ImageData:
     def __init__(self, images, labels=None):
         self.x = torch.Tensor(images)
         if labels is None:
-            self.y  = torch.ones(x.shape[0]).long()
+            self.y  = torch.ones(images.shape[0]).long()
         else:
             self.y = torch.Tensor(labels).long()
 
