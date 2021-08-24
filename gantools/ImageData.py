@@ -3,7 +3,7 @@ import torch
 class ImageData:
     """
     Class intended for use in conjunction with a PyTorch dataloader.
-    Labels can be supplied if the image data is labelled.
+    Labels can be supplied if the image data is labelled, i. e. for use in CGAN.
     """
     def __init__(self, images, labels=None):
         self.x = torch.Tensor(images)

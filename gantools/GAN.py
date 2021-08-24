@@ -9,7 +9,6 @@ from time import gmtime, strftime, localtime
 from torch.utils import data
 from .nets.Gen128 import Gen
 from .nets.Dis128 import Dis
-from .utils import *
 from .ImageData import ImageData
 from .DiffAugment_pytorch import DiffAugment
 
@@ -17,11 +16,11 @@ class GAN:
     def __init__(self, **cfg_args):
         valid_args = ['batch_size', 'use_cuda', 'epochs', 'lr_g', 'lr_d',
                      'beta1', 'beta2', 'momentum', 'shuffle', 'DiffAugment',
-                     'do_plot', 'plot_freq', 'manual_seed', 'loss', 'z_size',
-                     'save_gif', 'base_channels', 'add_noise', 'noise_magnitude']
+                     'do_plot', 'plot_interval', 'manual_seed', 'loss', 'z_size',
+                     'save_gif', 'base_channels', 'add_noise', 'noise_magnitude',
+                     'augment_policy']
 
         # Default configuration with same training paramters as original GAN paper
-
         cfg =    {        # Training parameters
                           'batch_size': 128,
                           'use_cuda': True,
@@ -31,8 +30,9 @@ class GAN:
                           'beta1': 0.5,
                           'beta2': 0.999,        # = momentum
                           'shuffle': True,       # shuffle data during training
-                          'DiffAugment': False,
                           'loss': 'BCELoss',     # loss function
+                          'DiffAugment': False,
+                          'augment_policy': 'color,translation',  # augmentation methods if DiffAugment is enabled
 
                           # Neural network parameters
                           'z_size': 100,         # latent space vector size
@@ -42,7 +42,7 @@ class GAN:
 
                           # Plotting parameters
                           'do_plot': True,
-                          'plot_freq': 1,
+                          'plot_interval': 1,
 
                           # Other
                           'manual_seed': 0,
@@ -59,7 +59,8 @@ class GAN:
 
         self.cfg = cfg
         if cfg['loss'] == 'BCELoss':
-            self.loss = torch.nn.BCELoss(reduction='sum')
+            self.L = torch.nn.BCELoss(reduction='mean')
+            print ('mean reduction')
         else:
             raise NotImplementedError("Loss function '%s' not implemented. Only 'BCELoss' is implemented so far.")
 
@@ -78,10 +79,10 @@ class GAN:
 
         self.imgs = imgs
         self.n_samples = len(imgs)
-
         epochs = self.cfg['epochs']
+
         c, h, w = imgs[0].shape
-        images_gif = np.zeros((epochs, h, w, c))
+        images_gif = np.zeros((epochs+1, h, w, c))
 
         d_error_real = np.zeros(epochs)
         d_error_fake = np.zeros(epochs)
@@ -95,12 +96,12 @@ class GAN:
         if loaded_G is not None:
             self.G.load_state_dict(torch.load("%s" % loaded_G))
         else:
-            self.G.apply(weights_init)
+            self.G.apply(self.weights_init)
 
         if loaded_D is not None:
             self.D.load_state_dict(torch.load("%s" % loaded_D))
         else:
-            self.D.apply(weights_init)
+            self.D.apply(self.weights_init)
 
         if self.cfg['use_cuda'] == True:
             self.G.to('cuda')
@@ -114,8 +115,9 @@ class GAN:
         n_examples = 4
 
         # Define a latent space vector that remains constant,
-        # use to evaluate quality of images during training
+        # use to show evolution of latent space --> image over time
         z_verify = torch.randn(1, self.z_size)
+        images_gif[0] = self.generate_image(z_verify)   # should look like noise if model is untrained
 
         for epoch in range(epochs):
             g_error[epoch], d_error_real[epoch], d_error_fake[epoch] = self.run_epoch(dataloader, G_opt, D_opt)
@@ -123,35 +125,28 @@ class GAN:
             sys.stdout.write('epoch: %d/%d, g, d_fake, d_real: %1.4g   %1.4g   %1.4g     \r' % (epoch+1, epochs, g_error[epoch], d_error_fake[epoch], d_error_real[epoch]) )
             sys.stdout.flush()
 
-            if (epoch % self.cfg['plot_freq']) == 0:
+            # Show some generated images at given intervals
+            if (epoch % self.cfg['plot_interval']) == 0:
                 self.G.eval()
                 fig, ax = plt.subplots(1, n_examples, figsize=(16,12), sharex=True, sharey=True)
                 plt.subplots_adjust(left=0, right=1, top=1, wspace=0.05, hspace=0.05)
 
                 for k in range(1, n_examples):
-                    if self.cfg['use_cuda']:
-                        test_img = self.G( torch.randn(1, self.z_size).cuda())
-                    else:
-                        test_img = self.G( torch.randn(1, self.z_size))
-
-                    img = un_normalize(test_img[0].permute(1,2,0))
-                    ax[k].imshow(img.detach().cpu().numpy())
+                    z = torch.randn(1, self.z_size)
+                    img = self.generate_image(z)
+                    ax[k].imshow(img)
                     ax[k].set_axis_off()
 
                 # Plot verification image
-                if self.cfg['use_cuda']:
-                    test_img = self.G( z_verify.cuda())
-                else:
-                    test_img = self.G( z_verify)
-
-                img = un_normalize(test_img[0].permute(1,2,0)).detach().cpu().numpy()
-                images_gif[epoch] = img
+                z_verify = torch.randn(1, self.z_size)
+                images_gif[epoch+1] = self.generate_image(z_verify)
                 ax[0].imshow(img)
                 ax[0].set_axis_off()
 
                 plt.show()
                 self.G.train()
 
+        # Done training, show some results and save models
         self.G.eval()
         plt.figure()
         plt.plot(d_error_real, label='d error real')
@@ -162,25 +157,21 @@ class GAN:
         plt.grid()
 
         # Generate some images using the trained generator
-        fig, ax = plt.subplots(4, 4, figsize=(13,8), sharex=True, sharey=True)
-        plt.subplots_adjust(left=0, right=1, top=1, wspace=0.05, hspace=0.1)
+        fig, ax = plt.subplots(4, 4, figsize=(12,12), sharex=True, sharey=True)
+        plt.subplots_adjust(left=0, right=1, top=1, wspace=0.05, hspace=0.05)
 
         for k in range(16):
             i = k // 4
             j = k % 4
-            if self.cfg['use_cuda']:
-                test_img = self.G( torch.randn(1, self.z_size).cuda())
-            else:
-                test_img = self.G( torch.randn(1, self.z_size))
-
-            img = un_normalize(test_img[0].permute(1,2,0))
-            ax[i, j].imshow(img.detach().cpu().numpy())
+            z = torch.randn(1, self.z_size)
+            img = self.generate_image(z)
+            ax[i, j].imshow(img)
             ax[i, j].set_axis_off()
 
         plt.show()
         self.G.train()
 
-        # Save models
+        # Save models and results with time stamp
         current_time = strftime("%Y-%m-%d-%H%M", localtime())
         os.makedirs("%s/%s" % (model_folder, current_time))
         os.makedirs("results/%s" % current_time)
@@ -196,7 +187,7 @@ class GAN:
             images_gif *= 255
             imageio.mimsave('results/%s/progress.gif' % str(current_time), images_gif.astype(np.uint8), fps=10)
 
-        # Save self.cfg dict to txt
+        # Write self.cfg dict items to txt
         configfile = open('results/%s/cfg.txt' % current_time, 'w')
         configfile.write("---- Configuration ----\n")
         for i, j in self.cfg.items():
@@ -208,14 +199,10 @@ class GAN:
         g_total_error = 0
         d_total_error_real = 0
         d_total_error_fake = 0
-
-        cuda = self.cfg['use_cuda']
-        policy = 'color,translation'
-
-        augment = self.cfg['DiffAugment']
+        policy = self.cfg['augment_policy']
 
         for batch_idx, data_batch in enumerate(data_loader):
-            if cuda:
+            if self.cfg['use_cuda']:
                 images = data_batch[0].to('cuda')
                 labels = data_batch[1].unsqueeze(1).to('cuda')
             else:
@@ -228,29 +215,29 @@ class GAN:
             """
             Train discriminator
             """
-            fake_data = self.G(noise(images.size(0), self.z_size, cuda=cuda))
+            fake_data = self.G(self.noise(images.size(0), self.z_size))
 
             D_opt.zero_grad()
 
             # Train on real data
-            if augment:
+            if self.cfg['DiffAugment']:
                 pred_real = self.D(DiffAugment(real_data, policy))
             else:
                 pred_real = self.D(real_data)
 
             # Calculate error on real data and backpropagate
-            error_real = self.loss(pred_real, real_data_target(real_data.size(0), 0.1, cuda))
-            (error_real/batch_size).backward()
+            error_real = self.L(pred_real, self.real_data_target(real_data.size(0), 0.1))
+            error_real.backward()
 
             # Train on fake data created by generator
-            if augment:
+            if self.cfg['DiffAugment']:
                 pred_fake = self.D(DiffAugment(fake_data.detach(), policy))
             else:
                 pred_fake = self.D(fake_data.detach())
 
             # Calculate error on fake data and backpropagate
-            error_fake = self.loss(pred_fake, fake_data_target(fake_data.size(0), 0, cuda))
-            (error_fake/batch_size).backward()
+            error_fake = self.L(pred_fake, self.fake_data_target(fake_data.size(0), 0))
+            error_fake.backward()
             D_opt.step()
 
             d_total_error_real += error_real
@@ -260,27 +247,80 @@ class GAN:
             Train generator
             """
             G_opt.zero_grad()
-            fake_data_gen = self.G(noise(images.size(0), self.z_size, cuda=cuda)) # DO NOT DETACH
-            if augment:
+            fake_data_gen = self.G(self.noise(images.size(0), self.z_size)) # DO NOT DETACH
+            if self.cfg['DiffAugment']:
                 d_on_g_pred = self.D(DiffAugment(fake_data_gen, policy))
             else:
                 d_on_g_pred = self.D(fake_data_gen)
 
             # Calculate error and backpropagate
-            g_error = self.loss(d_on_g_pred, real_data_target(d_on_g_pred.size(0), 0, cuda))
-            (g_error/batch_size).backward()
+            g_error = self.L(d_on_g_pred, self.real_data_target(d_on_g_pred.size(0), 0))
+            g_error.backward()
 
             G_opt.step()
 
             g_total_error += g_error
 
         # return loss per sample
-        return g_total_error/self.n_samples, d_total_error_real/self.n_samples, d_total_error_fake/self.n_samples
+        m = batch_idx + 1       # number of minibatches
+        return g_total_error/m, d_total_error_real/m, d_total_error_fake/m
 
+    def generate_image(self, z):
+        """
+        Use generator to create an image using latent space vector z.
+        Return image as numpy array.
+        """
+        if self.cfg['use_cuda']:
+            img_tn = self.G(z.cuda())
+        else:
+            img_tn = self.G(z)
+
+        img = self.un_normalize(img_tn[0].permute(1,2,0)).detach().cpu().numpy()
+        return img
+
+    def real_data_target(self, size, delta=0):
+        '''
+        Tensor containing ones
+        '''
+        # data = torch.ones(size, 1) - torch.rand(size, 1)*delta
+        data = torch.ones(size, 1) - delta
+        if self.cfg['use_cuda']:
+            return data.cuda()
+        return data
+
+    def fake_data_target(self, size, delta=0):
+        '''
+        Tensor containing zeros
+        '''
+        data = torch.zeros(size, 1) + delta
+        if self.cfg['use_cuda']:
+            return data.cuda()
+        return data
+
+    def noise(self, size, n):
+        """
+        Create latent vector for generator input
+        """
+        noise = torch.randn(size, n)
+        if self.cfg['use_cuda']:
+            return noise.cuda()
+        return noise
+
+    def weights_init(self, m):
+        classname = m.__class__.__name__
+
+        if classname.find('Conv2d') != -1:
+            m.weight.data.normal_(0.0, 0.02)
+        elif classname.find('BatchNorm') != -1:
+            m.weight.data.normal_(1.0, 0.02)
+            m.bias.data.fill_(0)
+
+    def normalize(self, img, mean=0.5, std=0.5):
+        return (img - mean)/std
+
+    def un_normalize(self, img, mean=0.5, std=0.5):
+        return mean + img*std
 
     def flush(self):
         torch.cuda.empty_cache()         # free GPU memory
-        self.G.to('cpu')
-        self.D.to('cpu')
-        self.G = None
-        self.D = None
+        # implement procedure for freeing more GPU memory later
