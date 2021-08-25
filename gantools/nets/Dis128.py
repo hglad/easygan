@@ -1,9 +1,9 @@
 import torch.nn as nn
 from torch import randn_like
 
-class Dis(nn.Module):
+class Dis128(nn.Module):
     def __init__(self, c=64, add_noise=True, noise_magnitude=0.1):
-        super(Dis, self).__init__()
+        super(Dis128, self).__init__()
 
         """
         For 128 x 128 x 3 images (from tutorial)

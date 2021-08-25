@@ -1,8 +1,8 @@
 import torch.nn as nn
 
-class Gen(nn.Module):
+class Gen128(nn.Module):
     def __init__(self, c=64):
-        super(Gen, self).__init__()
+        super(Gen128, self).__init__()
         """
         Generates 128 x 128 x 3 image     (h, w, c)
         """

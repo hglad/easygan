@@ -8,8 +8,8 @@ import glob
 import torchvision.transforms as transforms
 from time import gmtime, strftime, localtime
 from torch.utils import data
-from .nets.Gen128 import Gen
-from .nets.Dis128 import Dis
+from .nets.Gen128 import Gen128
+from .nets.Dis128 import Dis128
 from .ImageData import ImageData
 from .DiffAugment_pytorch import DiffAugment
 
@@ -19,7 +19,7 @@ class GAN:
                      'beta1', 'beta2', 'momentum', 'shuffle', 'DiffAugment',
                      'do_plot', 'plot_interval', 'manual_seed', 'loss', 'z_size',
                      'save_gif', 'base_channels', 'add_noise', 'noise_magnitude',
-                     'augment_policy', 'model_folder']
+                     'augment_policy', 'model_folder', 'custom_G', 'custom_D']
 
         # Default configuration with same training paramters as original GAN paper
         self.cfg =    {        # Training parameters
@@ -40,6 +40,8 @@ class GAN:
                           'base_channels': 64,   # base number for NN filters
                           'add_noise': True,
                           'noise_magnitude': 0.1,
+                          'custom_G': None,
+                          'custom_D': None,
 
                           # Plotting parameters
                           'do_plot': True,
@@ -75,8 +77,7 @@ class GAN:
         D_path = glob.glob(os.path.join(folder, timestamp, '*discriminator*'))[0]
 
         # Set generator and discriminator
-        self.G = Gen(self.cfg['base_channels'])
-        self.D = Dis(self.cfg['base_channels'], self.cfg['add_noise'], self.cfg['noise_magnitude'])
+        self.G, self.D = self.set_models()
 
         self.G.load_state_dict(torch.load(G_path, map_location='cuda'), strict=False)
         self.D.load_state_dict(torch.load(D_path, map_location='cuda'), strict=False)
@@ -102,9 +103,7 @@ class GAN:
 
         # Initialize weights if model has not been trained/loaded
         if self.has_trained == False or restart == True:
-            # Set generator and discriminator
-            self.G = Gen(self.cfg['base_channels'])
-            self.D = Dis(self.cfg['base_channels'], self.cfg['add_noise'], self.cfg['noise_magnitude'])
+            self.G, self.D = self.set_models()
             self.G.apply(self.weights_init)
             self.D.apply(self.weights_init)
 
@@ -282,6 +281,20 @@ class GAN:
         img = self.un_normalize(img_tn[0].permute(1,2,0)).detach().cpu().numpy()
         self.G.train()
         return img
+
+    def set_models(self):
+        if self.cfg['custom_G'] is None:
+            G = Gen128(self.cfg['base_channels'])
+        else:
+            raise NotImplementedError('Custom generator is not supported yet')
+
+        if self.cfg['custom_D'] is None:
+            D = Dis128(self.cfg['base_channels'], self.cfg['add_noise'], self.cfg['noise_magnitude'])
+        else:
+            raise NotImplementedError('Custom discriminator is not supported yet')
+
+        return G, D
+
 
     def real_data_target(self, size, delta=0):
         '''
