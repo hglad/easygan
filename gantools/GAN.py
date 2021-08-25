@@ -4,6 +4,7 @@ import torch
 import os
 import sys
 import imageio
+import glob
 import torchvision.transforms as transforms
 from time import gmtime, strftime, localtime
 from torch.utils import data
@@ -13,15 +14,15 @@ from .ImageData import ImageData
 from .DiffAugment_pytorch import DiffAugment
 
 class GAN:
-    def __init__(self, **cfg_args):
-        valid_args = ['batch_size', 'use_cuda', 'epochs', 'lr_g', 'lr_d',
+    def __init__(self):
+        self.valid_args = ['batch_size', 'use_cuda', 'epochs', 'lr_g', 'lr_d',
                      'beta1', 'beta2', 'momentum', 'shuffle', 'DiffAugment',
                      'do_plot', 'plot_interval', 'manual_seed', 'loss', 'z_size',
                      'save_gif', 'base_channels', 'add_noise', 'noise_magnitude',
-                     'augment_policy']
+                     'augment_policy', 'model_folder']
 
         # Default configuration with same training paramters as original GAN paper
-        cfg =    {        # Training parameters
+        self.cfg =    {        # Training parameters
                           'batch_size': 128,
                           'use_cuda': True,
                           'epochs': 100,
@@ -46,39 +47,50 @@ class GAN:
 
                           # Other
                           'manual_seed': 0,
-                          'save_gif': True
+                          'save_gif': True,
+                          'model_folder': 'models'
 
                 }
 
+        self.has_trained = False
+
+    def modify_cfg(self, **cfg_args):
         # Apply user-defined properties to configuration dict
         for arg, value in cfg_args.items():
-            if arg in valid_args:
-                cfg[arg] = value
+            if arg in self.valid_args:
+                self.cfg[arg] = value
             else:
                 print ("'%s' is not a valid property. See the Readme for a list of properties that can be tweaked." % arg)
 
-        self.cfg = cfg
-        if cfg['loss'] == 'BCELoss':
+        if self.cfg['loss'] == 'BCELoss':
             self.L = torch.nn.BCELoss(reduction='mean')
-            print ('mean reduction')
         else:
             raise NotImplementedError("Loss function '%s' not implemented. Only 'BCELoss' is implemented so far.")
 
-        self.z_size = cfg['z_size']
+        self.z_size = self.cfg['z_size']
 
+    def load_state(self, timestamp):
+        folder = self.cfg['model_folder']
+        G_path = glob.glob(os.path.join(folder, timestamp, '*generator*'))[0]
+        D_path = glob.glob(os.path.join(folder, timestamp, '*discriminator*'))[0]
 
-    def train_gan(self, imgs, loaded_G=None, loaded_D=None):
+        # Set generator and discriminator
+        self.G = Gen(self.cfg['base_channels'])
+        self.D = Dis(self.cfg['base_channels'], self.cfg['add_noise'], self.cfg['noise_magnitude'])
+
+        self.G.load_state_dict(torch.load(G_path, map_location='cuda'), strict=False)
+        self.D.load_state_dict(torch.load(D_path, map_location='cuda'), strict=False)
+        self.has_trained = True
+
+    def train_gan(self, imgs, restart=False, **cfg_args):
+        # torch.autograd.set_detect_anomaly(True)
+        self.modify_cfg(**cfg_args)
         torch.manual_seed(self.cfg['manual_seed'])
         np.random.seed(self.cfg['manual_seed'])
-        # torch.autograd.set_detect_anomaly(True)
-
-        try:
-            model_folder = self.cfg['model_folder']
-        except:
-            model_folder = 'models'
 
         self.imgs = imgs
         self.n_samples = len(imgs)
+        model_folder = self.cfg['model_folder']
         epochs = self.cfg['epochs']
 
         c, h, w = imgs[0].shape
@@ -88,19 +100,12 @@ class GAN:
         d_error_fake = np.zeros(epochs)
         g_error = np.zeros(epochs)
 
-        # Set generator and discriminator
-        self.G = Gen(self.cfg['base_channels'])
-        self.D = Dis(self.cfg['base_channels'], self.cfg['add_noise'], self.cfg['noise_magnitude'])
-
-        # Load pre-trained models if supplied
-        if loaded_G is not None:
-            self.G.load_state_dict(torch.load("%s" % loaded_G))
-        else:
+        # Initialize weights if model has not been trained/loaded
+        if self.has_trained == False or restart == True:
+            # Set generator and discriminator
+            self.G = Gen(self.cfg['base_channels'])
+            self.D = Dis(self.cfg['base_channels'], self.cfg['add_noise'], self.cfg['noise_magnitude'])
             self.G.apply(self.weights_init)
-
-        if loaded_D is not None:
-            self.D.load_state_dict(torch.load("%s" % loaded_D))
-        else:
             self.D.apply(self.weights_init)
 
         if self.cfg['use_cuda'] == True:
@@ -127,37 +132,40 @@ class GAN:
 
             # Show some generated images at given intervals
             if (epoch % self.cfg['plot_interval']) == 0:
-                self.G.eval()
                 fig, ax = plt.subplots(1, n_examples, figsize=(16,12), sharex=True, sharey=True)
                 plt.subplots_adjust(left=0, right=1, top=1, wspace=0.05, hspace=0.05)
 
-                for k in range(1, n_examples):
+                for k in range(n_examples):
                     z = torch.randn(1, self.z_size)
                     img = self.generate_image(z)
                     ax[k].imshow(img)
                     ax[k].set_axis_off()
 
-                # Plot verification image
-                z_verify = torch.randn(1, self.z_size)
-                images_gif[epoch+1] = self.generate_image(z_verify)
-                ax[0].imshow(img)
-                ax[0].set_axis_off()
+            # Plot verification image
+            images_gif[epoch+1] = self.generate_image(z_verify)
+            plt.show()
+        """
+        Done training
+        """
+        self.has_trained = True
 
-                plt.show()
-                self.G.train()
+        # Create folders for results and models with timestamp
+        current_time = strftime("%Y-%m-%d-%H%M", localtime())
+        os.makedirs("%s/%s" % (model_folder, current_time))
+        os.makedirs("results/%s" % current_time)
 
-        # Done training, show some results and save models
-        self.G.eval()
-        plt.figure()
+        # Show some results and save models
+        lossplot = plt.figure()
         plt.plot(d_error_real, label='d error real')
         plt.plot(d_error_fake, label='d error fake')
         plt.plot(g_error, label='g error')
         plt.ylabel('error')
         plt.legend()
         plt.grid()
+        lossplot.savefig('results/%s/loss.png' % current_time)
 
         # Generate some images using the trained generator
-        fig, ax = plt.subplots(4, 4, figsize=(12,12), sharex=True, sharey=True)
+        fig, ax = plt.subplots(4, 4, figsize=(16,18), sharex=True, sharey=True)
         plt.subplots_adjust(left=0, right=1, top=1, wspace=0.05, hspace=0.05)
 
         for k in range(16):
@@ -168,13 +176,8 @@ class GAN:
             ax[i, j].imshow(img)
             ax[i, j].set_axis_off()
 
+        fig.savefig('results/%s/4x4_generated.png' % current_time)
         plt.show()
-        self.G.train()
-
-        # Save models and results with time stamp
-        current_time = strftime("%Y-%m-%d-%H%M", localtime())
-        os.makedirs("%s/%s" % (model_folder, current_time))
-        os.makedirs("results/%s" % current_time)
 
         name_gen = "generator_%sepochs_%s" % (str(epochs), str(current_time))
         name_dis = "discriminator_%sepochs_%s" % (str(epochs), str(current_time))
@@ -270,12 +273,14 @@ class GAN:
         Use generator to create an image using latent space vector z.
         Return image as numpy array.
         """
+        self.G.eval()
         if self.cfg['use_cuda']:
             img_tn = self.G(z.cuda())
         else:
             img_tn = self.G(z)
 
         img = self.un_normalize(img_tn[0].permute(1,2,0)).detach().cpu().numpy()
+        self.G.train()
         return img
 
     def real_data_target(self, size, delta=0):
