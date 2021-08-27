@@ -3,6 +3,9 @@ from .nets.CGen import CGen
 from .nets.CDis import CDis
 from torch.utils import data
 from time import gmtime, strftime, localtime
+"""
+Not usable yet
+"""
 
 class CGAN(GAN):
     def __init__(self, **cfg_args):
