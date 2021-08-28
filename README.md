@@ -8,10 +8,11 @@ Clone this repository, navigate to the root folder containing ```setup.py``` and
 
 # Usage
 #### Train with default parameters
-With ```imgs``` provided as a list of images, the following code will create a class instance and train a GAN using the default parameters:
+With ```imgs``` provided as a list or NumPy array of images, the following code will create a class instance and train a GAN using the default parameters:
 ```python
 import easygan as eg
 
+imgs_tn = eg.preprocess(imgs)      # normalize pixel values and create tensor
 mygan = eg.GAN()          
 mygan.train_gan(imgs)       
 ```
@@ -20,16 +21,16 @@ By default, the models (generator and discriminator) will be saved to a folder i
 Training can be resumed by running ```train_gan``` again. Note that this will save a new set of models rather than overwriting the previous models.
 
 #### Train with other parameters
-Parameters can be supplied to the ```train_gan``` function (a list of tweakable parameters is provided in the final section of this Readme).
+Parameters can be supplied to the ```train_gan``` function (a list of tweakable parameters is provided in the final section of this Readme), providing some control over the training procedure and more:
 ```python    
-mygan.train_gan(imgs, batch_size=16, epochs=50, DiffAugment=True)       
+mygan.train_gan(imgs_tn, batch_size=16, epochs=50, DiffAugment=True)       
 ```
 
 #### Loading trained models
 In order to load a generator and discriminator, provide the name of the folder inside ```models``` that contains the models:
 
 ```python
-folder = '2021-08-25-0124'    # name of folder inside models/
+folder = '2021-08-28-1345'    # name of folder inside models/
 mygan.load_state(folder)     
 ```
 
@@ -48,7 +49,7 @@ plt.show()
 ```
 
 #### Example notebook
-A notebook that demonstrates the usage of this package is provided in the ``easygan/easygan`` folder.
+A notebook that demonstrates the usage of this package is provided in the ``easygan/easygan/example`` folder.
 
 # Parameters
 The user can tweak a variety of parameters that affect the training procedure, network architecture and more.

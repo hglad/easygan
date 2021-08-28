@@ -1,3 +1,4 @@
+# install:  python -m pip install .
 import setuptools
 
 setuptools.setup(name='easygan',
