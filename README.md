@@ -14,7 +14,7 @@ import easygan as eg
 
 imgs_tn = eg.preprocess(imgs)      # normalize pixel values and create tensor
 mygan = eg.GAN()          
-mygan.train_gan(imgs)       
+mygan.train_gan(imgs_tn)       
 ```
 By default, the models (generator and discriminator) will be saved to a folder inside ```models``` in your working directory. Some results will also be generated and saved to the folder ```results```, also placed in your working directory.
 

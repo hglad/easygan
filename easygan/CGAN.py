@@ -9,7 +9,9 @@ Not usable yet
 
 class CGAN(GAN):
     def __init__(self, **cfg_args):
+        raise NotImplementedError("To be implemented later")
         GAN.__init__(self, **cfg_args)
+
 
     def train_cgan(self, imgs, labels, label_names=None, loaded_G=None, loaded_D=None):
         torch.manual_seed(self.cfg['manual_seed'])

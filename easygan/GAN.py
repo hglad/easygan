@@ -14,7 +14,24 @@ from .ImageData import ImageData
 from .DiffAugment_pytorch import DiffAugment
 
 class GAN:
+    """
+    Class for training a GAN with functionality to tweak training parameters and
+    more. The user only needs to supply the image data to start training the
+    generator (G) and discriminator (D). When finished training, the models are
+    automatically saved along with some generated images.
+
+    Implementation of generator and discriminator is mostly inspired by
+    https://pytorch.org/tutorials/beginner/dcgan_faces_tutorial.html ,
+
+    which is again inspired by the original GAN paper
+    https://papers.nips.cc/paper/2014/file/5ca3e9b122f61f8f06494c97b1afccf3-Paper.pdf
+    """
+
     def __init__(self):
+        """
+        Initialize default parameters and flags. Takes no arguments (yet).
+        """
+
         self.valid_args = ['batch_size', 'use_cuda', 'epochs', 'lr_g', 'lr_d',
                      'beta1', 'beta2', 'shuffle', 'DiffAugment',
                      'do_plot', 'plot_interval', 'manual_seed', 'loss', 'z_size',
@@ -57,7 +74,11 @@ class GAN:
         self.has_trained = False
 
     def modify_cfg(self, **cfg_args):
-        # Apply user-defined properties to configuration dict
+        """
+        Apply user-defined properties to configuration dict. Automatically run
+        when supplying additional arguments to self.train_gan.
+        """
+
         for arg, value in cfg_args.items():
             if arg in self.valid_args:
                 self.cfg[arg] = value
@@ -91,7 +112,32 @@ class GAN:
             if not isinstance(self.cfg[arg], str):
                 raise ValueError("%s must be a string, not %s" % (arg, type(arg)))
 
+    def set_models(self):
+        """
+        Helper function for defining G and D in the class environment.
+        """
+
+        if self.cfg['custom_G'] is None:
+            G = Gen128(self.cfg['base_channels'])
+        else:
+            raise NotImplementedError('Custom generator is not supported yet')
+
+        if self.cfg['custom_D'] is None:
+            D = Dis128(self.cfg['base_channels'], self.cfg['add_noise'], self.cfg['noise_magnitude'])
+        else:
+            raise NotImplementedError('Custom discriminator is not supported yet')
+
+        return G, D
+
     def load_state(self, timestamp):
+        """
+        Load a saved generator and discriminator from disk. May be a better idea
+        to instead require individual paths to G and D.
+
+        Args:
+            timestamp: str, name of folder containing G and D.
+        """
+
         folder = self.cfg['model_folder']
         G_path = glob.glob(os.path.join(folder, timestamp, '*generator*'))
         D_path = glob.glob(os.path.join(folder, timestamp, '*discriminator*'))
@@ -113,6 +159,19 @@ class GAN:
         self.has_trained = True
 
     def train_gan(self, imgs, restart=False, **cfg_args):
+        """
+        Train the generator (G) and discriminator (D) using provided images.
+        Outputs generated images during training by default, and saves G and D
+        after training is done.
+
+        Args:
+            imgs: Tensor, with dimensions (num_samples, 3, height, width).
+            restart: bool, re-initializes weights for G and D if True.
+                     Effectively resets G and D to untrained states.
+            **cfg_args: additional properties that the user can provide. See
+                        Readme for a list of properties.
+        """
+
         # torch.autograd.set_detect_anomaly(True)
         self.modify_cfg(**cfg_args)
 
@@ -229,6 +288,21 @@ class GAN:
         configfile.close()
 
     def run_epoch(self, data_loader, G_opt, D_opt):
+        """
+        Use the provided dataset to train G and D. A single epoch has been run
+        when every image has been used once, and the models have updated their
+        parameters accordingly. Function is used by self.train_gan.
+
+        Args:
+            data_loader: torch.utils.data.DataLoader, used for easy handling of
+                         training data.
+            G_opt: torch.optim, PyTorch optimizer for optimizing weights of G.
+            D_opt: torch.optim, PyTorch optimizer for optimizing weights of D.
+        Returns:
+            g_error, d_real_error, d_fake_error: floats, average loss per sample
+                   for generator and discriminator.
+
+        """
         g_total_error = 0
         d_total_error_real = 0
         d_total_error_fake = 0
@@ -280,7 +354,7 @@ class GAN:
             Train generator
             """
             G_opt.zero_grad()
-            fake_data_gen = self.G(self.noise(images.size(0), self.z_size)) # DO NOT DETACH
+            fake_data_gen = self.G(self.noise(images.size(0), self.z_size))
             if self.cfg['DiffAugment']:
                 d_on_g_pred = self.D(DiffAugment(fake_data_gen, policy))
             else:
@@ -301,8 +375,14 @@ class GAN:
     def generate_image(self, z):
         """
         Use generator to create an image using latent space vector z.
-        Return image as numpy array.
+
+        Args:
+            z: torch.Tensor, of dimensions (1, 100) representing latent space
+               vector.
+        Returns:
+            img: np.ndarray, of dimensions (128, 128, 3).
         """
+
         self.G.eval()
         if self.cfg['use_cuda']:
             img_tn = self.G(z.cuda())
@@ -313,25 +393,10 @@ class GAN:
         self.G.train()
         return img
 
-    def set_models(self):
-        if self.cfg['custom_G'] is None:
-            G = Gen128(self.cfg['base_channels'])
-        else:
-            raise NotImplementedError('Custom generator is not supported yet')
-
-        if self.cfg['custom_D'] is None:
-            D = Dis128(self.cfg['base_channels'], self.cfg['add_noise'], self.cfg['noise_magnitude'])
-        else:
-            raise NotImplementedError('Custom discriminator is not supported yet')
-
-        return G, D
-
-
     def real_data_target(self, size, delta=0):
         '''
-        Tensor containing ones
+        Tensor containing ones, representing labels for real data.
         '''
-        # data = torch.ones(size, 1) - torch.rand(size, 1)*delta
         data = torch.ones(size, 1) - delta
         if self.cfg['use_cuda']:
             return data.cuda()
@@ -339,7 +404,7 @@ class GAN:
 
     def fake_data_target(self, size, delta=0):
         '''
-        Tensor containing zeros
+        Tensor containing zeros, representing labels for fake data.
         '''
         data = torch.zeros(size, 1) + delta
         if self.cfg['use_cuda']:
@@ -348,7 +413,7 @@ class GAN:
 
     def noise(self, size, n):
         """
-        Create latent vector for generator input
+        Create latent vector for generator input.
         """
         noise = torch.randn(size, n)
         if self.cfg['use_cuda']:
@@ -356,6 +421,9 @@ class GAN:
         return noise
 
     def weights_init(self, m):
+        """
+        Initialize model weights with mean of 0 and standard deviation 0.02.
+        """
         classname = m.__class__.__name__
 
         if classname.find('Conv2d') != -1:
@@ -372,4 +440,5 @@ class GAN:
 
     def flush(self):
         torch.cuda.empty_cache()         # free GPU memory
-        # implement procedure for freeing more GPU memory later
+        # implement procedure for freeing more GPU memory later, seems like
+        # PyTorch is holding on to a lot of memory after finishing training
