@@ -4,7 +4,9 @@ An attempt at a user-friendly PyTorch implementation of a Generative Adverserial
 Most of the testing of this package has been done in a Jupyter Notebook environment, so I highly recommend using this package in an equivalent environment.
 
 # Installation
-Clone this repository, navigate to the root folder containing ```setup.py``` and run ```python -m pip install .```
+Install using ```pip``` with ```pip install git+https://github.com/hglad/easygan``` .
+
+*Alternatively*: Clone this repository, navigate to the root folder containing ```setup.py``` and run ```python -m pip install .``` .
 
 # Usage
 #### Train with default parameters
@@ -88,9 +90,9 @@ The user can tweak a variety of parameters that affect the training procedure, n
 
 **custom_D**: None
 
-**do_plot**: True       
+**do_plot**: Plots some examples of generated images during training. Recommended to set to False if not running in a notebook, as the plotting will otherwise pause the training procedure. **Default**: True       
 
-**plot_interval**: 1
+**plot_interval**: If ```do_plot=True```, how many epochs should pass during training before showing some generated images. **Default**: 1
 
 **manual_seed**: 0
 

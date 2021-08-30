@@ -220,19 +220,21 @@ class GAN:
             sys.stdout.flush()
 
             # Show some generated images at given intervals
-            if (epoch % self.cfg['plot_interval']) == 0:
-                fig, ax = plt.subplots(1, n_examples, figsize=(16,12), sharex=True, sharey=True)
-                plt.subplots_adjust(left=0, right=1, top=1, wspace=0.05, hspace=0.05)
+            if self.cfg['do_plot']:
+                if (epoch % self.cfg['plot_interval']) == 0:
+                    fig, ax = plt.subplots(1, n_examples, figsize=(16,12), sharex=True, sharey=True)
+                    plt.subplots_adjust(left=0, right=1, top=1, wspace=0.05, hspace=0.05)
 
-                for k in range(n_examples):
-                    z = torch.randn(1, self.z_size)
-                    img = self.generate_image(z)
-                    ax[k].imshow(img)
-                    ax[k].set_axis_off()
+                    for k in range(n_examples):
+                        z = torch.randn(1, self.z_size)
+                        img = self.generate_image(z)
+                        ax[k].imshow(img)
+                        ax[k].set_axis_off()
 
-            # Plot verification image
+                plt.show()
+
+            # Create verification image for later
             images_gif[epoch+1] = self.generate_image(z_verify)
-            plt.show()
         """
         Done training
         """
