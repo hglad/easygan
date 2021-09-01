@@ -2,8 +2,9 @@ import torch.nn as nn
 from torch import randn_like
 
 class Dis128(nn.Module):
-    def __init__(self, c=64, add_noise=True, noise_magnitude=0.1):
+    def __init__(self, base_channels=64, add_noise=True, noise_magnitude=0.1):
         super(Dis128, self).__init__()
+        c = base_channels
 
         self.add_noise = add_noise
         self.noise_magnitude = noise_magnitude

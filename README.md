@@ -28,6 +28,18 @@ Parameters can be supplied to the ```train_gan``` function (a list of tweakable 
 mygan.train_gan(imgs_tn, batch_size=16, epochs=50, DiffAugment=True)       
 ```
 
+#### Using custom generators and discriminators
+If you want to use a different generator and/or discriminator than the default ones, you can provide the models as an additional parameter to the ```train_gan``` function. Simply import the desired model (should be a class that is a subclass of torch.nn.Module) and pass it as a keyword argument:
+
+```python    
+from MyGenerator import MyGenerator
+from MyDiscriminator import MyDiscriminator
+
+mygan.train_gan(imgs_tn, custom_G=MyGenerator, custom_D=MyDiscriminator)       
+```
+
+If the provided models take any input arguments (such as ```base_channels``` in the default models), they can be set by passing them as a keyword argument in the ```train_gan``` call.
+
 #### Loading trained models
 In order to load a generator and discriminator, provide the name of the folder inside ```models``` that contains the models:
 

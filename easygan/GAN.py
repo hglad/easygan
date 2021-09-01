@@ -5,7 +5,8 @@ import os
 import sys
 import imageio
 import glob
-import torchvision.transforms as transforms
+import inspect
+
 from time import gmtime, strftime, localtime
 from torch.utils import data
 from .nets.Gen128 import Gen128
@@ -57,7 +58,7 @@ class GAN:
                           'base_channels': 64,   # base number for NN filters
                           'add_noise': True,
                           'noise_magnitude': 0.1,# magnitude of added noise to D
-                          'custom_G': None,      # to be implemented
+                          'custom_G': None,
                           'custom_D': None,
 
                           # Plotting parameters
@@ -82,8 +83,9 @@ class GAN:
         for arg, value in cfg_args.items():
             if arg in self.valid_args:
                 self.cfg[arg] = value
-            else:
-                print ("'%s' is not a valid property. See the Readme for a list of properties that can be tweaked." % arg)
+            # Issues with running custom models with arguments not in the cfg
+            # else:
+            #     print ("'%s' is not a valid property. See the Readme for a list of properties that can be tweaked." % arg)
 
         if self.cfg['loss'] == 'BCELoss':
             self.L = torch.nn.BCELoss(reduction='mean')
@@ -116,16 +118,44 @@ class GAN:
         """
         Helper function for defining G and D in the class environment.
         """
-
         if self.cfg['custom_G'] is None:
-            G = Gen128(self.cfg['base_channels'])
+            G_class = Gen128         # default generator
         else:
-            raise NotImplementedError('Custom generator is not supported yet')
+            G_class = self.cfg['custom_G']
 
         if self.cfg['custom_D'] is None:
-            D = Dis128(self.cfg['base_channels'], self.cfg['add_noise'], self.cfg['noise_magnitude'])
+            D_class = Dis128         # default discriminator
         else:
-            raise NotImplementedError('Custom discriminator is not supported yet')
+            D_class = self.cfg['custom_D']
+
+        try:
+            if not issubclass(G_class, torch.nn.Module):
+                raise TypeError('Provided generator is not a subclass of torch.nn.Module. Make sure that the generator class inherits from the torch.nn.Module.')
+        except:
+            raise TypeError('Provided generator is not a class. Generator must be a subclass of torch.nn.Module.')
+        try:
+            if not issubclass(D_class, torch.nn.Module):
+                raise TypeError('Provided discriminator is not a subclass of torch.nn.Module. Make sure that the discriminator class inherits from the torch.nn.Module.')
+        except:
+            raise TypeError('Provided discriminator is not a class. Discriminator must be a subclass of torch.nn.Module.')
+
+        # Find which arguments the models can take
+        G_args = inspect.getfullargspec(G_class).args
+        D_args = inspect.getfullargspec(D_class).args
+        G_kwargs = {}
+        D_kwargs = {}
+
+        # Set values if provided by cfg
+        for arg in G_args:
+            if arg in self.cfg.keys():
+                G_kwargs[arg] = self.cfg[arg]
+
+        for arg in D_args:
+            if arg in self.cfg.keys():
+                D_kwargs[arg] = self.cfg[arg]
+
+        G = G_class(**G_kwargs)
+        D = D_class(**D_kwargs)
 
         return G, D
 
@@ -200,6 +230,8 @@ class GAN:
         if self.cfg['use_cuda'] == True:
             self.G.to('cuda')
             self.D.to('cuda')
+
+        self.test_model_outputs()
 
         G_opt = torch.optim.Adam(self.G.parameters(), lr=self.cfg['lr_g'], betas=(self.cfg['beta1'], self.cfg['beta2']))
         D_opt = torch.optim.Adam(self.D.parameters(), lr=self.cfg['lr_d'], betas=(self.cfg['beta1'], self.cfg['beta2']))
@@ -433,6 +465,15 @@ class GAN:
         elif classname.find('BatchNorm') != -1:
             m.weight.data.normal_(1.0, 0.02)
             m.bias.data.fill_(0)
+
+    def test_model_outputs(self):
+        # Test G
+        z = torch.randn(1, self.z_size)
+        test_output = self.generate_image(z)
+        test_train_image = self.imgs[0].permute(1,2,0)
+
+        assert test_output.shape == test_train_image.shape, "Generator output shape does not match training data shape: %s != %s" % (test_output.shape, test_train_image.shape)
+
 
     def normalize(self, img, mean=0.5, std=0.5):
         return (img - mean)/std

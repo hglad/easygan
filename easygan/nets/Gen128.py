@@ -1,8 +1,9 @@
 import torch.nn as nn
 
 class Gen128(nn.Module):
-    def __init__(self, c=64):
+    def __init__(self, base_channels=64):
         super(Gen128, self).__init__()
+        c = base_channels
 
         self.conv0 = nn.Sequential(
             nn.ConvTranspose2d(100, 8*c, kernel_size=8, stride=1, padding=0, bias=False),
