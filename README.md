@@ -1,5 +1,9 @@
 # Intro
-An attempt at a user-friendly PyTorch implementation of a Generative Adverserial Network (GAN). The user only needs to supply the data (images) in order to train their own GAN, and parameters such as learning rates and optimizer properties can be tweaked by the user. The generator and discriminator are currently only built for handling 128x128 RGB images.
+An attempt at a user-friendly PyTorch implementation of a Generative Adverserial Network (GAN). The user only needs to supply the data (images) in order to train their own GAN, and parameters such as learning rates and optimizer properties can be tweaked by the user.
+
+GANs are trained by letting two different models compete against each other. The *generator* model attempts to create images that the *discriminator* model struggles to distinguish from real images. During training, the discriminator learns by attempting to classify real images as real and fake images (created by the generator) as fake. The generator learns from the feedback provided by the discriminator on how real the fake images look. If the two models are trained properly, the generator should be able to create images that look like real images, without ever being exposed to the real data directly.
+
+The default generator and discriminator is built for handling 128x128 RGB images. If the user wants to work with different image sizes, or just with different model architectures in general, the user can supply their own generator and/or discriminator when training the GAN. The Usage-section covers an example on how to use such custom-defined models.
 
 Most of the testing of this package has been done in a Jupyter Notebook environment, so I highly recommend using this package in an equivalent environment.
 
