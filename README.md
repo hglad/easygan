@@ -1,4 +1,4 @@
-# About
+# Intro
 An attempt at a user-friendly PyTorch implementation of a Generative Adverserial Network (GAN). The user only needs to supply the data (images) in order to train their own GAN, and parameters such as learning rates and optimizer properties can be tweaked by the user. The generator and discriminator are currently only built for handling 128x128 RGB images.
 
 Most of the testing of this package has been done in a Jupyter Notebook environment, so I highly recommend using this package in an equivalent environment.
@@ -76,15 +76,15 @@ The user can tweak a variety of parameters that affect the training procedure, n
 
 **DiffAugment**: If True, use data augmentation methods provided by Zhao et al. in *Differentiable Augmentation for Data-Efficient GAN Training* (2020). Helpful when training on a small dataset. **Default**: False
 
-**augment_policy**: 'color,translation'
+**augment_policy**: If ```DIffAUgment``` is True, perform data augmentation with these methods (available options are color, translation, cutout). **Default**: 'color,translation'
 
-**z_size**: 100    
+**z_size**: Size of the input vector to the generator (the latent space vector). **Default**: 100    
 
-**base_channels**: 64
+**base_channels**: Defines the minimum number of channels in the convolutional layers inside the generator and discriminator.  **Default**: 64
 
-**add_noise**: True
+**add_noise**: If True, adds gaussian noise to the input images when training the discriminator. Helps regularize the discriminator. **Default**: True
 
-**noise_magnitude**: 0.1
+**noise_magnitude**: Factor to multiply the gaussian noise with if ```add_noise``` is True. **Default**: 0.1
 
 **custom_G**: None     
 
@@ -92,7 +92,7 @@ The user can tweak a variety of parameters that affect the training procedure, n
 
 **do_plot**: Plots some examples of generated images during training. Recommended to set to False if not running in a notebook, as the plotting will otherwise pause the training procedure. **Default**: True       
 
-**plot_interval**: If ```do_plot=True```, how many epochs should pass during training before showing some generated images. **Default**: 1
+**plot_interval**: If ```do_plot``` is True, defines the number of epochs during training between each set of generated images. **Default**: 1
 
 **manual_seed**: 0
 
