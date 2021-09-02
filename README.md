@@ -18,7 +18,9 @@ With ```imgs``` provided as a list or NumPy array of images, the following code 
 ```python
 import easygan as eg
 
-imgs_tn = eg.preprocess(imgs)      # normalize pixel values and create tensor
+# Resize images to 128x128, normalize pixel values and return as tensor
+imgs_tn = eg.preprocess(imgs, h=128, w=128)
+
 mygan = eg.GAN()          
 mygan.train_gan(imgs_tn)       
 ```
