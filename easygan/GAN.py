@@ -11,6 +11,8 @@ from time import gmtime, strftime, localtime
 from torch.utils import data
 from .nets.Gen128 import Gen128
 from .nets.Dis128 import Dis128
+from .nets.CGen import CGen
+from .nets.CDis import CDis
 from .ImageData import ImageData
 from .DiffAugment_pytorch import DiffAugment
 
@@ -33,11 +35,11 @@ class GAN:
         Initialize default parameters and flags. Takes no arguments (yet).
         """
 
-        self.valid_args = ['batch_size', 'use_cuda', 'epochs', 'lr_g', 'lr_d',
-                     'beta1', 'beta2', 'shuffle', 'DiffAugment',
-                     'do_plot', 'plot_interval', 'manual_seed', 'loss', 'z_size',
-                     'save_gif', 'base_channels', 'add_noise', 'noise_magnitude',
-                     'augment_policy', 'model_folder', 'custom_G', 'custom_D']
+        # self.valid_args = ['batch_size', 'use_cuda', 'epochs', 'lr_g', 'lr_d',
+        #              'beta1', 'beta2', 'shuffle', 'DiffAugment',
+        #              'do_plot', 'plot_interval', 'manual_seed', 'loss', 'z_size',
+        #              'save_gif', 'base_channels', 'add_noise', 'noise_magnitude',
+        #              'augment_policy', 'model_folder', 'custom_G', 'custom_D']
 
         # Default configuration with same training paramters as original GAN paper
         self.cfg =    {   # Training parameters
@@ -72,7 +74,10 @@ class GAN:
 
                 }
 
+        self.valid_args = list(self.cfg.keys())
         self.has_trained = False
+        self.epochs_trained = 0
+        self.cgan = False
 
     def modify_cfg(self, **cfg_args):
         """
@@ -119,12 +124,18 @@ class GAN:
         Helper function for defining G and D in the class environment.
         """
         if self.cfg['custom_G'] is None:
-            G_class = Gen128         # default generator
+            if self.cgan:
+                G_class = CGen           # default generator, CGAN
+            else:
+                G_class = Gen128         # default generator, GAN
         else:
             G_class = self.cfg['custom_G']
 
         if self.cfg['custom_D'] is None:
-            D_class = Dis128         # default discriminator
+            if self.cgan:
+                D_class = CDis           # default discriminator, CGAN
+            else:
+                D_class = Dis128         # default discriminator, GAN
         else:
             D_class = self.cfg['custom_D']
 
@@ -215,7 +226,7 @@ class GAN:
         epochs = self.cfg['epochs']
 
         c, h, w = imgs[0].shape
-        images_gif = np.zeros((epochs+1, h, w, c))
+        self.images_gif = np.zeros((epochs+1, h, w, c))
 
         d_error_real = np.zeros(epochs)
         d_error_fake = np.zeros(epochs)
@@ -226,6 +237,7 @@ class GAN:
             self.G, self.D = self.set_models()
             self.G.apply(self.weights_init)
             self.D.apply(self.weights_init)
+            self.epochs_trained = 0
 
         if self.cfg['use_cuda'] == True:
             self.G.to('cuda')
@@ -243,7 +255,7 @@ class GAN:
         # Define a latent space vector that remains constant,
         # use to show evolution of latent space --> image over time
         z_verify = torch.randn(1, self.z_size)
-        images_gif[0] = self.generate_image(z_verify)   # should look like noise if model is untrained
+        self.images_gif[0] = self.generate_image(z_verify)   # should look like noise if model is untrained
 
         for epoch in range(epochs):
             g_error[epoch], d_error_real[epoch], d_error_fake[epoch] = self.run_epoch(dataloader, G_opt, D_opt)
@@ -266,60 +278,15 @@ class GAN:
                 plt.show()
 
             # Create verification image for later
-            images_gif[epoch+1] = self.generate_image(z_verify)
+            self.images_gif[epoch+1] = self.generate_image(z_verify)
+            self.epochs_trained += 1
+
         """
         Done training
         """
         self.has_trained = True
 
-        # Create folders for results and models with timestamp
-        current_time = strftime("%Y-%m-%d-%H%M", localtime())
-        os.makedirs("%s/%s" % (model_folder, current_time))
-        os.makedirs("results/%s" % current_time)
-
-        # Show some results and save models
-        lossplot = plt.figure()
-        plt.plot(d_error_real, label='d error real')
-        plt.plot(d_error_fake, label='d error fake')
-        plt.plot(g_error, label='g error')
-        plt.ylabel('error')
-        plt.legend()
-        plt.grid()
-        lossplot.savefig('results/%s/loss.png' % current_time)
-
-        # Generate some images using the trained generator
-        fig, ax = plt.subplots(4, 4, figsize=(16,18), sharex=True, sharey=True)
-        plt.subplots_adjust(left=0, right=1, top=1, wspace=0.05, hspace=0.05)
-
-        for k in range(16):
-            i = k // 4
-            j = k % 4
-            z = torch.randn(1, self.z_size)
-            img = self.generate_image(z)
-            ax[i, j].imshow(img)
-            ax[i, j].set_axis_off()
-
-        fig.savefig('results/%s/4x4_generated.png' % current_time)
-        plt.show()
-
-        name_gen = "generator_%sepochs_%s" % (str(epochs), str(current_time))
-        name_dis = "discriminator_%sepochs_%s" % (str(epochs), str(current_time))
-        torch.save(self.G.state_dict(), os.path.join(model_folder, current_time, name_gen))
-        torch.save(self.D.state_dict(), os.path.join(model_folder, current_time, name_dis))
-        print ("Saved generator as %s" % name_gen)
-        print ("Saved discriminator as %s" % name_dis)
-
-        if self.cfg['save_gif']:
-            images_gif *= 255
-            imageio.mimsave('results/%s/progress.gif' % str(current_time), images_gif.astype(np.uint8), fps=10)
-
-        # Write self.cfg dict items to txt
-        configfile = open('results/%s/cfg.txt' % current_time, 'w')
-        configfile.write("---- Configuration ----\n")
-        for i, j in self.cfg.items():
-            configfile.write("%s: %s\n" % (i,j))
-
-        configfile.close()
+        self.write_results(g_error, d_error_real, d_error_fake)
 
     def run_epoch(self, data_loader, G_opt, D_opt):
         """
@@ -406,7 +373,7 @@ class GAN:
         m = batch_idx + 1       # number of minibatches
         return g_total_error/m, d_total_error_real/m, d_total_error_fake/m
 
-    def generate_image(self, z):
+    def generate_image(self, z, y=None):
         """
         Use generator to create an image using latent space vector z.
 
@@ -416,12 +383,20 @@ class GAN:
         Returns:
             img: np.ndarray, of dimensions (128, 128, 3).
         """
+        if y is None:
+            y = torch.Tensor([0])
 
         self.G.eval()
-        if self.cfg['use_cuda']:
-            img_tn = self.G(z.cuda())
+        if self.cgan:
+            if self.cfg['use_cuda']:
+                img_tn = self.G(z.cuda(), y.cuda())
+            else:
+                img_tn = self.G(z, y)
         else:
-            img_tn = self.G(z)
+            if self.cfg['use_cuda']:
+                img_tn = self.G(z.cuda())
+            else:
+                img_tn = self.G(z)
 
         img = self.un_normalize(img_tn[0].permute(1,2,0)).detach().cpu().numpy()
         self.G.train()
@@ -474,6 +449,73 @@ class GAN:
 
         assert test_output.shape == test_train_image.shape, "Generator output shape does not match training data shape: %s != %s" % (test_output.shape, test_train_image.shape)
 
+    def write_results(self, g_error, d_error_real, d_error_fake):
+        # Create folders for results and models with timestamp
+        current_time = strftime("%Y-%m-%d-%H%M", localtime())
+        model_folder = self.cfg['model_folder']
+        try:
+            os.makedirs("%s/%s" % (model_folder, current_time))
+        except:
+            pass
+
+        try:
+            os.makedirs("results/%s" % current_time)
+        except:
+            pass
+
+        # Show some results and save models
+        lossplot = plt.figure()
+        plt.plot(d_error_real, label='d error real')
+        plt.plot(d_error_fake, label='d error fake')
+        plt.plot(g_error, label='g error')
+        plt.ylabel('error')
+        plt.legend()
+        plt.grid()
+        lossplot.savefig('results/%s/loss.png' % current_time)
+
+        # Generate some images using the trained generator
+        fig, ax = plt.subplots(4, 4, figsize=(16,18), sharex=True, sharey=True)
+        plt.subplots_adjust(left=0, right=1, top=1, wspace=0.05, hspace=0.05)
+
+        for k in range(16):
+            i = k // 4
+            j = k % 4
+            z = torch.randn(1, self.cfg['z_size'])
+            if self.cgan:
+                y = torch.randint(0, self.n_labels, size=(1,))
+                img = self.generate_image(z, y)
+            else:
+                img = self.generate_image(z)
+
+            ax[i, j].imshow(img)
+            ax[i, j].set_axis_off()
+
+        fig.savefig('results/%s/4x4_generated.png' % current_time)
+        plt.show()
+
+        if self.cgan:
+            name_gen = "cgenerator_%sepochs_%s" % (str(self.epochs_trained), str(current_time))
+            name_dis = "cdiscriminator_%sepochs_%s" % (str(self.epochs_trained), str(current_time))
+        else:
+            name_gen = "generator_%sepochs_%s" % (str(self.epochs_trained), str(current_time))
+            name_dis = "discriminator_%sepochs_%s" % (str(self.epochs_trained), str(current_time))
+
+        torch.save(self.G.state_dict(), os.path.join(model_folder, current_time, name_gen))
+        torch.save(self.D.state_dict(), os.path.join(model_folder, current_time, name_dis))
+        print ("Saved generator as %s" % name_gen)
+        print ("Saved discriminator as %s" % name_dis)
+
+        if self.cfg['save_gif']:
+            self.images_gif *= 255
+            imageio.mimsave('results/%s/progress.gif' % str(current_time), self.images_gif.astype(np.uint8), fps=10)
+
+        # Write self.cfg dict items to txt
+        configfile = open('results/%s/cfg.txt' % current_time, 'w')
+        configfile.write("---- Configuration ----\n")
+        for i, j in self.cfg.items():
+            configfile.write("%s: %s\n" % (i,j))
+
+        configfile.close()
 
     def normalize(self, img, mean=0.5, std=0.5):
         return (img - mean)/std

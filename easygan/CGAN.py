@@ -1,22 +1,38 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import torch
+import os
+import sys
+import imageio
+import glob
+import inspect
+
+from time import gmtime, strftime, localtime
+from torch.utils import data
 from .GAN import GAN
+from .nets.Gen128 import Gen128
+from .nets.Dis128 import Dis128
 from .nets.CGen import CGen
 from .nets.CDis import CDis
-from torch.utils import data
-from time import gmtime, strftime, localtime
+from .ImageData import ImageData
+from .DiffAugment_pytorch import DiffAugment
 """
 Not usable yet
 """
 
 class CGAN(GAN):
     def __init__(self, **cfg_args):
-        raise NotImplementedError("To be implemented later")
-        GAN.__init__(self, **cfg_args)
+        # raise NotImplementedError("To be implemented later")
+        GAN.__init__(self)
+        self.cgan = True
 
 
-    def train_cgan(self, imgs, labels, label_names=None, loaded_G=None, loaded_D=None):
+    def train_cgan(self, imgs, labels, restart=False, **cfg_args):
         torch.manual_seed(self.cfg['manual_seed'])
         np.random.seed(self.cfg['manual_seed'])
         # torch.autograd.set_detect_anomaly(True)
+
+        self.modify_cfg(**cfg_args)
 
         try:
             model_folder = self.cfg['model_folder']
@@ -26,43 +42,39 @@ class CGAN(GAN):
         self.imgs = imgs
         self.labels = labels
 
-        if label_names is None:
-            self.label_names = [str(i) for i in labels]
-        else:
-            self.label_names = label_names
+        # if label_names is None:
+            # self.label_names = [str(i) for i in labels]
+        # else:
+            # self.label_names = label_names
+        self.label_names = [str(i) for i in labels]
 
         self.n_samples = len(imgs)
         self.n_labels = np.max(labels) - 1
 
         epochs = self.cfg['epochs']
+        c, h, w = imgs[0].shape
 
-        images_gif = np.zeros((epochs, 90, 160, 3))
+        self.images_gif = np.zeros((epochs+1, h, w, c))
 
         d_error_real = np.zeros(epochs)
         d_error_fake = np.zeros(epochs)
         g_error = np.zeros(epochs)
 
-        # Set generator and discriminator
-        self.G = CGen(self.n_labels, self.cfg['base_channels'])
-        self.D = CDis(self.n_labels, self.cfg['base_channels'], self.cfg['add_noise'], self.cfg['noise_magnitude'])
-
-        # Load pre-trained models if supplied
-        if loaded_gen is not None:
-            self.G.load_state_dict(torch.load("%s" % loaded_gen))
-        else:
-            self.G.apply(weights_init)
-
-        if loaded_dis is not None:
-            self.D.load_state_dict(torch.load("%s" % loaded_dis))
-        else:
-            self.D.apply(weights_init)
+        # Initialize weights if model has not been trained/loaded
+        if self.has_trained == False or restart == True:
+            self.G, self.D = self.set_models()
+            self.G.apply(self.weights_init)
+            self.D.apply(self.weights_init)
+            self.epochs_trained = 0
 
         if self.cfg['use_cuda'] == True:
             self.G.to('cuda')
             self.D.to('cuda')
 
-        D_opt = torch.optim.Adam(self.D.parameters(), lr=self.cfg['lr_d'], betas=(self.cfg['beta1'], self.cfg['beta2']))
+        # self.test_model_outputs()
+
         G_opt = torch.optim.Adam(self.G.parameters(), lr=self.cfg['lr_g'], betas=(self.cfg['beta1'], self.cfg['beta2']))
+        D_opt = torch.optim.Adam(self.D.parameters(), lr=self.cfg['lr_d'], betas=(self.cfg['beta1'], self.cfg['beta2']))
 
         Dataset = ImageData(self.imgs, self.labels)
         dataloader = data.DataLoader(Dataset, self.cfg['batch_size'], shuffle=self.cfg['shuffle'], num_workers=4, pin_memory=True)
@@ -70,104 +82,40 @@ class CGAN(GAN):
 
         # Define a latent space vector that remains constant,
         # use to evaluate quality of images during training
-        z_verify = torch.randn(1, self.z_size)
-        y_verify = 0
+        z_verify = torch.randn(1, self.cfg['z_size'])
+        y_verify = torch.Tensor([0]).long()
 
         for epoch in range(epochs):
-            g_error[epoch], d_error_real[epoch], d_error_fake[epoch] = run_epoch_cgan(self.G, self.D, self.z_size, dataloader, self.cfg, g_opt, d_opt, self.n_samples)
+            g_error[epoch], d_error_real[epoch], d_error_fake[epoch] = self.run_epoch_cgan(dataloader, G_opt, D_opt)
 
             sys.stdout.write('epoch: %d/%d, g, d_fake, d_real: %1.4g   %1.4g   %1.4g     \r' % (epoch+1, epochs, g_error[epoch], d_error_fake[epoch], d_error_real[epoch]) )
             sys.stdout.flush()
 
-            if (epoch % self.cfg['plot_freq']) == 0:
-                self.G.eval()
-                fig, ax = plt.subplots(1, n_examples, figsize=(16,12), sharex=True, sharey=True)
-                plt.subplots_adjust(left=0, right=1, top=1, wspace=0.05, hspace=0.05)
+            # Show some generated images at given intervals
+            if self.cfg['do_plot']:
+                if (epoch % self.cfg['plot_interval']) == 0:
+                    fig, ax = plt.subplots(1, n_examples, figsize=(16,12), sharex=True, sharey=True)
+                    plt.subplots_adjust(left=0, right=1, top=1, wspace=0.05, hspace=0.05)
 
-                for k in range(1, n_examples):
-                    idx = np.random.randint(0, self.n_labels, 1)[0]
-                    label = torch.Tensor((idx,)).unsqueeze(1).long()
-
-                    if self.cfg['use_cuda']:
-                        test_img = self.G( torch.randn(1, self.z_size).cuda(), label.cuda())
-                    else:
-                        test_img = self.G( torch.randn(1, self.z_size), label)
-
-                    img = un_normalize(test_img[0].permute(1,2,0))
-                    ax[k].set_title(self.label_names[idx])
-                    ax[k].imshow(img.detach().cpu().numpy())
-                    ax[k].set_axis_off()
-
-                # Plot verification image
-                label = torch.Tensor((y_verify,)).unsqueeze(1).long()
-                if self.cfg['use_cuda']:
-                    test_img = self.G( z_verify.cuda(), label.cuda())
-                else:
-                    test_img = self.G( z_verify, label)
-
-                img = un_normalize(test_img[0].permute(1,2,0)).detach().cpu().numpy()
-                images_gif[epoch] = img
-                ax[0].set_title(self.label_names[y_verify])
-                ax[0].imshow(img)
-                ax[0].set_axis_off()
+                    for k in range(n_examples):
+                        z = torch.randn(1, self.cfg['z_size'])
+                        y = torch.randint(0, self.n_labels, size=(1,))
+                        img = self.generate_image(z,y)
+                        ax[k].imshow(img)
+                        ax[k].set_axis_off()
 
                 plt.show()
-                self.G.train()
 
-        self.G.eval()
-        plt.figure()
-        plt.plot(d_error_real, label='d error real')
-        plt.plot(d_error_fake, label='d error fake')
-        plt.plot(g_error, label='g error')
-        plt.ylabel('error')
-        plt.legend()
-        plt.grid()
+            # Create verification image for later
+            self.images_gif[epoch+1] = self.generate_image(z_verify, y_verify)
+            self.epochs_trained += 1
 
-        # Generate some images using the trained generator
-        fig, ax = plt.subplots(4, 4, figsize=(13,8), sharex=True, sharey=True)
-        plt.subplots_adjust(left=0, right=1, top=1, wspace=0.05, hspace=0.1)
+        """
+        Done training
+        """
+        self.has_trained = True
 
-        for k in range(16):
-            i = k // 4
-            j = k % 4
-            idx = np.random.randint(0, self.n_labels, 1)[0]
-            label = torch.Tensor((idx,)).unsqueeze(1).long()
-            if self.cfg['use_cuda']:
-                test_img = self.G( torch.randn(1, self.z_size).cuda(), label.cuda())
-            else:
-                test_img = self.G( torch.randn(1, self.z_size), label)
-
-            img = un_normalize(test_img[0].permute(1,2,0))
-            ax[i, j].set_title(self.label_names[idx])
-            ax[i, j].imshow(img.detach().cpu().numpy())
-            ax[i, j].set_axis_off()
-
-        plt.show()
-        self.G.train()
-
-        # Save models
-        current_time = strftime("%Y-%m-%d-%H%M", localtime())
-        os.makedirs("%s/%s" % (model_folder, current_time))
-        os.makedirs("results/%s" % current_time)
-
-        name_gen = "cgenerator_%sepochs_%s" % (str(epochs), str(current_time))
-        name_dis = "cdiscriminator_%sepochs_%s" % (str(epochs), str(current_time))
-        torch.save(self.G.state_dict(), os.path.join(model_folder, current_time, name_gen))
-        torch.save(self.D.state_dict(), os.path.join(model_folder, current_time, name_dis))
-        print ("Saved generator as %s" % name_gen)
-        print ("Saved discriminator as %s" % name_dis)
-
-        if cfg['save_gif']:
-            images_gif *= 255
-            imageio.mimsave('results/%s/progress.gif' % str(current_time), images_gif.astype(np.uint8), fps=10)
-
-        # Save self.cfg dict to txt
-        configfile = open('results/%s/cfg.txt' % current_time, 'w')
-        configfile.write("---- Configuration ----\n")
-        for i, j in self.cfg.items():
-            configfile.write("%s: %s\n" % (i,j))
-
-        configfile.close()
+        self.write_results(g_error, d_error_real, d_error_fake)
 
     def run_epoch_cgan(self, data_loader, G_opt, D_opt):
         g_total_error = 0
@@ -175,11 +123,8 @@ class CGAN(GAN):
         d_total_error_fake = 0
 
         cuda = self.cfg['use_cuda']
-        policy = 'color,translation'
-        try:
-            augment = self.cfg['DiffAugment']
-        except:
-            augment = False
+        policy = self.cfg['augment_policy']
+        augment = self.cfg['DiffAugment']
 
         for batch_idx, data_batch in enumerate(data_loader):
             if cuda:
@@ -195,9 +140,9 @@ class CGAN(GAN):
             """
             Train discriminator
             """
-            fake_data = self.G(noise(images.size(0), self.z_size, cuda=cuda), labels)
+            fake_data = self.G(self.noise(images.size(0), self.cfg['z_size']), labels)
 
-            d_opt.zero_grad()
+            D_opt.zero_grad()
 
             # Train on real data
             if augment:
@@ -206,7 +151,7 @@ class CGAN(GAN):
                 pred_real = self.D(real_data, labels)
 
             # Calculate error on real data and backpropagate
-            error_real = loss(pred_real, real_data_target(real_data.size(0), 0.1, True, cuda))
+            error_real = self.L(pred_real, self.real_data_target(real_data.size(0), 0.1))
             (error_real/batch_size).backward()
 
             # Train on fake data created by generator
@@ -216,7 +161,7 @@ class CGAN(GAN):
                 pred_fake = self.D(fake_data.detach(), labels)
 
             # Calculate error on fake data and backpropagate
-            error_fake = loss(pred_fake, fake_data_target(fake_data.size(0), 0, cuda))
+            error_fake = self.L(pred_fake, self.fake_data_target(fake_data.size(0), 0))
             (error_fake/batch_size).backward()
             D_opt.step()
 
@@ -227,14 +172,14 @@ class CGAN(GAN):
             Train generator
             """
             G_opt.zero_grad()
-            fake_data_gen = self.G(noise(images.size(0), self.z_size, cuda=cuda), labels) # DO NOT DETACH
+            fake_data_gen = self.G(self.noise(images.size(0), self.cfg['z_size']), labels) # DO NOT DETACH
             if augment:
                 d_on_g_pred = self.D(DiffAugment(fake_data_gen, policy), labels)
             else:
                 d_on_g_pred = self.D(fake_data_gen, labels)
 
             # Calculate error and backpropagate
-            g_error = loss(d_on_g_pred, real_data_target(d_on_g_pred.size(0), 0, False, cuda))
+            g_error = self.L(d_on_g_pred, self.real_data_target(d_on_g_pred.size(0), 0))
             (g_error/batch_size).backward()
 
             G_opt.step()
@@ -242,4 +187,5 @@ class CGAN(GAN):
             g_total_error += g_error
 
         # return loss per sample
-        return g_total_error/self.n_samples, d_total_error_real/self.n_samples, d_total_error_fake/self.n_samples
+        m = batch_idx + 1       # number of minibatches
+        return g_total_error/m, d_total_error_real/m, d_total_error_fake/m

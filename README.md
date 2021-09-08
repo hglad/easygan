@@ -12,8 +12,8 @@ Install using ```pip``` with ```pip install git+https://github.com/hglad/easygan
 
 *Alternatively*: Clone this repository, navigate to the root folder containing ```setup.py``` and run ```python -m pip install .``` .
 
-# Usage
-#### Train with default parameters
+# Training a GAN
+#### Using default parameters
 With ```imgs``` provided as a list or NumPy array of images, the following code will create a class instance and train a GAN using the default parameters:
 ```python
 import easygan as eg
@@ -28,7 +28,7 @@ By default, the models (generator and discriminator) will be saved to a folder i
 
 Training can be resumed by running ```train_gan``` again. Note that this will save a new set of models rather than overwriting the previous models.
 
-#### Train with other parameters
+#### Using other parameters
 Parameters can be supplied to the ```train_gan``` function (a list of tweakable parameters is provided in the final section of this Readme), providing some control over the training procedure and more:
 ```python    
 mygan.train_gan(imgs_tn, batch_size=16, epochs=50, DiffAugment=True)       
@@ -70,6 +70,34 @@ plt.show()
 
 #### Example notebook
 A notebook that demonstrates the usage of this package is provided in the ``easygan/easygan/example`` folder.
+
+# Training a CGAN
+Images and their corresponding class labels must be supplied in order to train a CGAN. For example, with ```labels``` as an array of integers (0, 1, ... , num_classes-1) and ```imgs``` containing the training images, the following code will train a CGAN using default parameters:
+
+```python
+import easygan as eg
+
+# Resize images to 128x128, normalize pixel values and return as tensor
+imgs_tn = eg.preprocess(imgs, h=128, w=128)
+
+mygan = eg.CGAN()          
+mygan.train_cgan(imgs_tn, labels, batch_size=16, epochs=50)       
+```
+As with training a GAN, the models are automatically saved and training can be resumed later. When generating an image using a CGAN, the class label must also be given, for example:
+
+```python
+import torch
+import matplotlib.pyplot as plt
+z = torch.randn(1, 100)          # input latent space
+y = torch.Tensor([2]).long()       # class label of desired image
+img = mygan.generate_image(z, y)   
+
+# Display the image
+plt.imshow(img)
+plt.show()
+```
+
+
 
 # Parameters
 The user can tweak a variety of parameters that affect the training procedure, network architecture and more.
