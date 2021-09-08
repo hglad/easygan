@@ -77,12 +77,14 @@ Images and their corresponding class labels must be supplied in order to train a
 ```python
 import easygan as eg
 
-# Resize images to 128x128, normalize pixel values and return as tensor
-imgs_tn = eg.preprocess(imgs, h=128, w=128)
+# Resize images to 160x90, normalize pixel values and return as tensor
+imgs_tn = eg.preprocess(imgs, h=90, w=160)
 
 mygan = eg.CGAN()          
 mygan.train_cgan(imgs_tn, labels, batch_size=16, epochs=50)       
 ```
+The default generator and discriminator are only suitable for 160x90 images (width x height).
+
 As with training a GAN, the models are automatically saved and training can be resumed later. When generating an image using a CGAN, the class label must also be given, for example:
 
 ```python
